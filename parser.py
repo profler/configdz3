@@ -34,6 +34,11 @@ class ConfigParser:
             else:
                 raise SyntaxError(f"Неизвестная конструкция: {line}")
 
+        # Проверка на отсутствие закрывающей скобки
+        if self.current_structure is not None:
+            raise SyntaxError("Пропущена закрывающая скобка }")
+
+
     def parse_constant(self, line):
         match = re.match(r'const\s+([_a-z]+)\s*=\s*(.+)', line)
         if not match:
@@ -53,20 +58,33 @@ class ConfigParser:
         items = {}
         buffer = []
         depth = 0
-        for item in re.split(r',\s*(?![^{]*\})', content):  # Разделяем по запятой, игнорируя запятые внутри фигурных скобок
+
+        for item in re.split(r',\s*(?![^{]*\})', content): 
             item = item.strip()
-            if 'struct {' in item:
+            if item.startswith('struct {'): 
                 depth += 1
-            if '}' in item:
+            if item.endswith('}'): 
                 depth -= 1
             buffer.append(item)
+
             if depth == 0:
                 combined_item = ' '.join(buffer).strip()
                 if '=' in combined_item:
                     key, value = combined_item.split('=', 1)
-                    items[key.strip()] = self.evaluate_value(value.strip())
+                    key = key.strip()
+                    value = value.strip()
+                    if value.startswith('struct {'):
+                        nested_content = value[7:-1].strip()
+                        items[key] = self.parse_items(nested_content)
+                    else:
+                        items[key] = self.evaluate_value(value)
                 buffer = []
+
+        if buffer: 
+            raise SyntaxError("Ошибка синтаксиса в структуре")
         return items
+
+
 
     def evaluate_value(self, value):
         value = value.strip()
@@ -81,11 +99,11 @@ class ConfigParser:
 
         if value.isdigit():
             return int(value)
-        elif re.match(r'"[^"]*"', value):  # Проверка на строку
-            return value.strip('"')  # Убираем кавычки
-        elif value.lower() in ['true', 'false']:  # Обработка логических значений
+        elif re.match(r'"[^"]*"', value):
+            return value.strip('"')
+        elif value.lower() in ['true', 'false']:
             return value.lower() == 'true'
-        elif re.match(r'struct\s*{(.+?)}', value, re.DOTALL):  # Проверка на вложенную структуру
+        elif re.match(r'struct\s*{(.+?)}', value, re.DOTALL):
             match = re.match(r'struct\s*{(.+?)}', value, re.DOTALL)
             if match:
                 nested_content = match.group(1).strip()
@@ -97,10 +115,9 @@ class ConfigParser:
         root = ET.Element("configuration")
         for struct in self.structures:
             self.add_struct_to_xml(root, struct)
-        # Форматируем XML с отступами
         xml_string = ET.tostring(root, encoding='unicode')
         parsed_xml = minidom.parseString(xml_string)
-        return parsed_xml.toprettyxml(indent="    ")  # Используем 4 пробела для отступов
+        return parsed_xml.toprettyxml(indent="    ")
 
     def add_struct_to_xml(self, parent, struct):
         struct_elem = ET.SubElement(parent, "struct")
